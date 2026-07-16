@@ -30,7 +30,7 @@ function registerProvider(
 
   pi.registerProvider(PROVIDER_ID, {
     baseUrl,
-    apiKey: "$LLMGATEWAY_API_KEY",
+    apiKey: "LLMGATEWAY_API_KEY",
     api: "openai-completions",
     authHeader: true,
     headers: {
