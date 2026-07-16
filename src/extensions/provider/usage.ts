@@ -31,6 +31,7 @@ export interface DevPassUsage {
   creditsUsed: number;
   creditsLimit: number;
   premiumCreditsUsed: number;
+  premiumWeekStart: string | null;
   billingCycleStart: string | null;
   expiresAt: string | null;
   rawCredits: number;
@@ -65,8 +66,8 @@ interface OrgData {
   devPlanCreditsUsed: string;
   devPlanCreditsLimit: string;
   devPlanPremiumCreditsUsed: string;
+  devPlanPremiumWeekStart: string | null;
   devPlanBillingCycleStart: string | null;
-  devPlanExpiresAt: string | null;
 }
 
 interface DashboardResponse {
@@ -186,10 +187,9 @@ export async function fetchUsage(cookie: string): Promise<DevPassUsage | null> {
         plan: defaultOrg.devPlan ?? "none",
         creditsUsed: parseNumber(defaultOrg.devPlanCreditsUsed),
         creditsLimit: parseNumber(defaultOrg.devPlanCreditsLimit),
-        premiumCreditsUsed: parseNumber(defaultOrg.devPlanPremiumCreditsUsed),
-        billingCycleStart: defaultOrg.devPlanBillingCycleStart,
-        expiresAt: defaultOrg.devPlanExpiresAt,
-        rawCredits: parseNumber(defaultOrg.credits),
+      premiumCreditsUsed: parseNumber(defaultOrg.devPlanPremiumCreditsUsed),
+      premiumWeekStart: defaultOrg.devPlanPremiumWeekStart,
+      billingCycleStart: defaultOrg.devPlanBillingCycleStart,
       };
     }
 
@@ -198,6 +198,7 @@ export async function fetchUsage(cookie: string): Promise<DevPassUsage | null> {
       creditsUsed: parseNumber(devpassOrg.devPlanCreditsUsed),
       creditsLimit: parseNumber(devpassOrg.devPlanCreditsLimit),
       premiumCreditsUsed: parseNumber(devpassOrg.devPlanPremiumCreditsUsed),
+      premiumWeekStart: devpassOrg.devPlanPremiumWeekStart,
       billingCycleStart: devpassOrg.devPlanBillingCycleStart,
       expiresAt: devpassOrg.devPlanExpiresAt,
       rawCredits: parseNumber(devpassOrg.credits),
@@ -233,28 +234,59 @@ function loadCachedUsage(): DevPassUsage | null {
  *  `usageSegment` can parse it via #normalizeUsageReports.
  *
  *  the status line usageSegment only recognises windowId "5h" and "7d".
- *  DevPass is a monthly billing cycle, so we map to "7d" — the segment
- *  renders it as "7d {percent}%". the /usage command also shows the
- *  dollar amounts via amount.used, amount.remainingFraction, and notes. */
+ *  we map:
+ *    5h → premium weekly fair-use allowance (18% of monthly on Max)
+ *    7d → monthly credit allowance
+ *
+ *  the premium weekly limit is derived from the plan tier:
+ *    lite=12%, pro=15%, max=18% of monthly credits */
+const PREMIUM_WEEKLY_PCT: Record<string, number> = {
+  lite: 0.12,
+  pro: 0.15,
+  max: 0.18,
+};
+
 function buildReport(usage: DevPassUsage): UsageReport {
   const now = Date.now();
   const limits: UsageLimit[] = [];
 
+  const premiumPct = PREMIUM_WEEKLY_PCT[usage.plan.toLowerCase()] ?? 0.18;
+  const premiumLimit = usage.creditsLimit * premiumPct;
+
+  // 5h window — premium weekly fair-use allowance
+  if (premiumLimit > 0) {
+    const premiumUsedFraction = Math.min(usage.premiumCreditsUsed / premiumLimit, 1);
+    const premiumRemaining = premiumLimit - usage.premiumCreditsUsed;
+    const premiumResetsAt = usage.premiumWeekStart
+      ? new Date(usage.premiumWeekStart).getTime() + 7 * 24 * 60 * 60 * 1000
+      : undefined;
+    limits.push({
+      id: "llmgateway:premium-weekly",
+      label: `DevPass ${usage.plan} premium (weekly)`,
+      scope: { windowId: "5h", provider: PROVIDER },
+      amount: {
+        usedFraction: premiumUsedFraction,
+        used: usage.premiumCreditsUsed,
+        remainingFraction: Math.max(0, 1 - premiumUsedFraction),
+        unit: "USD",
+      },
+      window: { id: "5h", label: "Premium Weekly", ...premiumResetsAt ? { resetsAt: premiumResetsAt } : {} },
+      notes: [
+        `${formatCurrency(premiumRemaining)} premium remaining of ${formatCurrency(premiumLimit)} (weekly)`,
+      ],
+    });
+  }
+
+  // 7d window — monthly credit allowance
   if (usage.creditsLimit > 0) {
+    const usedFraction = Math.min(usage.creditsUsed / usage.creditsLimit, 1);
+    const remaining = usage.creditsLimit - usage.creditsUsed;
     const resetsAt = usage.billingCycleStart
       ? new Date(usage.billingCycleStart).getTime()
       : undefined;
-    const usedFraction = Math.min(usage.creditsUsed / usage.creditsLimit, 1);
-    const remaining = usage.creditsLimit - usage.creditsUsed;
-    const limitNotes: string[] = [
-      `${formatCurrency(remaining)} remaining of ${formatCurrency(usage.creditsLimit)}`,
-    ];
-    if (usage.premiumCreditsUsed > 0) {
-      limitNotes.push(`${formatCurrency(usage.premiumCreditsUsed)} premium used`);
-    }
     limits.push({
       id: "llmgateway:devplan",
-      label: `DevPass ${usage.plan}`,
+      label: `DevPass ${usage.plan} (monthly)`,
       scope: { windowId: "7d", provider: PROVIDER },
       amount: {
         usedFraction,
@@ -263,7 +295,9 @@ function buildReport(usage: DevPassUsage): UsageReport {
         unit: "USD",
       },
       window: { id: "7d", label: "Billing Cycle", ...resetsAt ? { resetsAt } : {} },
-      notes: limitNotes,
+      notes: [
+        `${formatCurrency(remaining)} remaining of ${formatCurrency(usage.creditsLimit)} (monthly)`,
+      ],
     });
   }
 
@@ -274,7 +308,6 @@ function buildReport(usage: DevPassUsage): UsageReport {
     notes: [],
   };
 }
-
 // ─── agent.db cache injection ───────────────────────────────────────────
 
 /** construct the real cache key that omp's AuthStorageUsageCache expects.
