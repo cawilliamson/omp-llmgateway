@@ -46,8 +46,14 @@ interface UsageLimit {
   id: string;
   label: string;
   scope: { windowId: string; provider: string };
-  amount: { usedFraction: number };
+  amount: {
+    usedFraction: number;
+    used?: number;
+    remainingFraction?: number;
+    unit?: string;
+  };
   window: { id: string; label: string; resetsAt?: number };
+  notes?: string[];
 }
 
 interface OrgData {
@@ -222,10 +228,13 @@ function loadCachedUsage(): DevPassUsage | null {
   return loadStateFile().usage ?? null;
 }
 
-// ─── UsageReport construction ───────────────────────────────────────────
-
 /** build a UsageReport matching omp's internal schema so the built-in
- *  `usageSegment` can parse it via #normalizeUsageReports */
+ *  `usageSegment` can parse it via #normalizeUsageReports.
+ *
+ *  the status line usageSegment only recognises windowId "5h" and "7d".
+ *  DevPass is a monthly billing cycle, so we map to "7d" — the segment
+ *  renders it as "7d {percent}%". the /usage command also shows the
+ *  dollar amounts via amount.used, amount.remainingFraction, and notes. */
 function buildReport(usage: DevPassUsage): UsageReport {
   const now = Date.now();
   const limits: UsageLimit[] = [];
@@ -235,12 +244,25 @@ function buildReport(usage: DevPassUsage): UsageReport {
       ? new Date(usage.billingCycleStart).getTime()
       : undefined;
     const usedFraction = Math.min(usage.creditsUsed / usage.creditsLimit, 1);
+    const remaining = usage.creditsLimit - usage.creditsUsed;
+    const limitNotes: string[] = [
+      `${formatCurrency(remaining)} remaining of ${formatCurrency(usage.creditsLimit)}`,
+    ];
+    if (usage.premiumCreditsUsed > 0) {
+      limitNotes.push(`${formatCurrency(usage.premiumCreditsUsed)} premium used`);
+    }
     limits.push({
       id: "llmgateway:devplan",
       label: `DevPass ${usage.plan}`,
-      scope: { windowId: "billing", provider: PROVIDER },
-      amount: { usedFraction },
-      window: { id: "billing", label: "Billing Cycle", ...resetsAt ? { resetsAt } : {} },
+      scope: { windowId: "7d", provider: PROVIDER },
+      amount: {
+        usedFraction,
+        used: usage.creditsUsed,
+        remainingFraction: Math.max(0, 1 - usedFraction),
+        unit: "USD",
+      },
+      window: { id: "7d", label: "Billing Cycle", ...resetsAt ? { resetsAt } : {} },
+      notes: limitNotes,
     });
   }
 
