@@ -257,9 +257,6 @@ function buildReport(usage: DevPassUsage): UsageReport {
   if (premiumLimit > 0) {
     const premiumUsedFraction = Math.min(usage.premiumCreditsUsed / premiumLimit, 1);
     const premiumRemaining = premiumLimit - usage.premiumCreditsUsed;
-    const premiumResetsAt = usage.premiumWeekStart
-      ? new Date(usage.premiumWeekStart).getTime() + 7 * 24 * 60 * 60 * 1000
-      : undefined;
     limits.push({
       id: "llmgateway:premium-weekly",
       label: `DevPass ${usage.plan} premium (weekly)`,
@@ -270,7 +267,7 @@ function buildReport(usage: DevPassUsage): UsageReport {
         remainingFraction: Math.max(0, 1 - premiumUsedFraction),
         unit: "USD",
       },
-      window: { id: "5h", label: "Premium Weekly", ...premiumResetsAt ? { resetsAt: premiumResetsAt } : {} },
+      window: { id: "5h", label: "Premium Weekly" },
       notes: [
         `${formatCurrency(premiumRemaining)} premium remaining of ${formatCurrency(premiumLimit)} (weekly)`,
       ],
