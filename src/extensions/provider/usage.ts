@@ -282,10 +282,13 @@ function buildReport(usage: DevPassUsage): UsageReport {
  *  and the full cache key is:
  *    usage_cache:report:<provider>:<baseUrl>:<identity> */
 function buildUsageCacheKey(): string | null {
+  // try auth_credentials first, then fall back to the env var.
+  // the llmgateway provider uses apiKey: "LLMGATEWAY_API_KEY" (env var
+  // name), so the key may not be stored in auth_credentials at all.
+  let apiKey: string | null = null;
   try {
     const roDb = new Database(DB_PATH, { readonly: true });
     roDb.exec("PRAGMA busy_timeout = 5000");
-    let apiKey: string | null = null;
     try {
       const row = roDb
         .prepare(
@@ -299,12 +302,15 @@ function buildUsageCacheKey(): string | null {
     } finally {
       roDb.close();
     }
-    if (!apiKey) return null;
-    const identity = `api_key|secret:${Bun.hash(apiKey.trim()).toString(16)}`;
-    return `usage_cache:report:${PROVIDER}:https://api.llmgateway.io:${identity}`;
   } catch {
-    return null;
+    // db read failed — fall through to env var
   }
+  if (!apiKey) {
+    apiKey = process.env.LLMGATEWAY_API_KEY ?? null;
+  }
+  if (!apiKey) return null;
+  const identity = `api_key|secret:${Bun.hash(apiKey.trim()).toString(16)}`;
+  return `usage_cache:report:${PROVIDER}:https://api.llmgateway.io:${identity}`;
 }
 
 /** write the UsageReport into agent.db's cache table so omp's
@@ -316,38 +322,29 @@ function writeUsageCache(report: UsageReport): boolean {
       expiresAt: Date.now() + CACHE_TTL_MS,
     });
     const expiresAtSec = Math.floor((Date.now() + CACHE_TTL_MS) / 1000);
-
     const BUSY_TIMEOUT_MS = 5000;
-
-    const roDb = new Database(DB_PATH, { readonly: true });
-    roDb.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-    let keys: string[] = [];
-    try {
-      const stmt = roDb.prepare(`SELECT key FROM cache WHERE key LIKE ?`);
-      keys = stmt.all(`usage_cache:report:${PROVIDER}:%`).map((r: { key: string }) => r.key);
-      stmt.finalize();
-    } finally {
-      roDb.close();
-    }
-
-    const primaryKey = buildUsageCacheKey();
-    if (primaryKey && !keys.includes(primaryKey)) keys.push(primaryKey);
 
     const db = new Database(DB_PATH);
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     try {
-      if (keys.length === 0) {
-        const fallbackKey = `usage_cache:report:${PROVIDER}:default:api_key|anonymous`;
+      // delete all old llmgateway cache keys (stale windowId, old hashes)
+      db.prepare(`DELETE FROM cache WHERE key LIKE ?`).run(
+        `usage_cache:report:${PROVIDER}:%`,
+      );
+
+      // write the primary key (env-var-derived identity)
+      const primaryKey = buildUsageCacheKey();
+      if (primaryKey) {
         db.prepare(
           `INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)`,
-        ).run(fallbackKey, payload, expiresAtSec);
-      } else {
-        for (const key of keys) {
-          db.prepare(
-            `INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)`,
-          ).run(key, payload, expiresAtSec);
-        }
+        ).run(primaryKey, payload, expiresAtSec);
       }
+
+      // always write the fallback anonymous key too
+      const fallbackKey = `usage_cache:report:${PROVIDER}:default:api_key|anonymous`;
+      db.prepare(
+        `INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)`,
+      ).run(fallbackKey, payload, expiresAtSec);
     } finally {
       db.close();
     }
