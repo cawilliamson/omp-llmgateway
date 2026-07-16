@@ -514,10 +514,11 @@ export function registerUsageTracking(pi: ExtensionAPI): void {
       }
 
       const WIDGET_KEY = "llmgateway-status";
-      const lines: string[] = [" 📊  LLM Gateway usage", ""];
+      const lines: string[] = [" 📊  LLM Gateway DevPass", ""];
 
-      // cookie status
+      // cookie + cached usage condensed into fewer lines
       const cookie = loadCookie();
+      const cached = loadCachedUsage();
       const state = loadStateFile();
       let cookieAge = "?";
       if (state.savedAt) {
@@ -526,78 +527,40 @@ export function registerUsageTracking(pi: ExtensionAPI): void {
       }
       lines.push(`  cookie ${cookie ? `✓ ${cookieAge}` : "✗ run /llmgateway:login"}`);
 
-      // cached usage
-      const cached = loadCachedUsage();
       if (cached) {
         const remaining = cached.creditsLimit - cached.creditsUsed;
         const pct = cached.creditsLimit > 0
           ? ((cached.creditsUsed / cached.creditsLimit) * 100).toFixed(1)
           : "0";
-        lines.push(`  plan    DevPass ${cached.plan}`);
-        lines.push(`  used    ${formatCurrency(cached.creditsUsed)} / ${formatCurrency(cached.creditsLimit)} (${pct}%)`);
-        lines.push(`  remain  ${formatCurrency(remaining)}`);
-        if (cached.premiumCreditsUsed > 0) {
-          lines.push(`  premium ${formatCurrency(cached.premiumCreditsUsed)}`);
-        }
+        lines.push(`  DevPass ${cached.plan} · ${formatCurrency(remaining)} remaining (${pct}% used)`);
         if (cached.expiresAt) {
           const expDate = new Date(cached.expiresAt).toLocaleDateString("en-GB");
-          lines.push(`  expires ${expDate}`);
+          lines.push(`  expires ${expDate} · ${formatCurrency(cached.creditsLimit)} limit`);
         }
       } else {
-        lines.push(`  cached  no data`);
+        lines.push(`  no cached data`);
       }
 
-      // live fetch
+      // live fetch (compact)
       if (cookie) {
-        lines.push("", "  fetching live…");
+        lines.push("  fetching live…");
         ctx.ui.setWidget(WIDGET_KEY, [...lines], { placement: "belowEditor" });
         const live = await fetchUsage(cookie);
+        lines.pop();
         if (live) {
           const remaining = live.creditsLimit - live.creditsUsed;
-          const pct = live.creditsLimit > 0
-            ? ((live.creditsUsed / live.creditsLimit) * 100).toFixed(1)
-            : "0";
-          lines.pop();
-          lines.push(`  live    ${formatCurrency(live.creditsUsed)} / ${formatCurrency(live.creditsLimit)} (${pct}%) — ${formatCurrency(remaining)} remaining ✓`);
+          lines.push(`  live ✓ ${formatCurrency(remaining)} remaining of ${formatCurrency(live.creditsLimit)}`);
           saveCachedUsage(live);
           writeUsageCache(buildReport(live));
         } else {
-          lines.pop();
-          lines.push(`  live    ✗ fetch failed — cookie may be expired`);
+          lines.push(`  live ✗ fetch failed — cookie may be expired`);
         }
       }
 
-      // poll status
-      const fetchAge = diag.lastFetchAt
-        ? `${Math.floor((Date.now() - diag.lastFetchAt) / 1000)}s`
-        : "never";
+      // poll + db status (one line)
+      const fetchAge = diag.lastFetchAt ? `${Math.floor((Date.now() - diag.lastFetchAt) / 1000)}s` : "never";
       const writeStatus = diag.lastWriteOk === null ? "n/a" : diag.lastWriteOk ? "✓" : "✗";
-      lines.push(`  poll ${fetchAge} ago (${diag.pollCount}×)  ·  write ${writeStatus}  ·  ${POLL_INTERVAL_MS / 60000}m  ·  ${pollTimer ? "active" : "idle"}`);
-
-      // db cache status
-      let dbStatus = "✗ db read failed";
-      try {
-        const db = new Database(DB_PATH, { readonly: true });
-        db.exec("PRAGMA busy_timeout = 5000");
-        try {
-          const rows = db.prepare(`SELECT key, value FROM cache WHERE key LIKE ?`).all(
-            `usage_cache:report:${PROVIDER}:%`,
-          ) as { key: string; value: string }[];
-          if (rows.length === 0) {
-            dbStatus = "✗ no cache key in agent.db";
-          } else {
-            const expected = buildUsageCacheKey();
-            const hasReal = expected ? rows.some((r) => r.key === expected) : false;
-            const parsed = JSON.parse(rows[0]!.value) as { value: UsageReport; expiresAt: number };
-            const expMin = Math.floor((parsed.expiresAt - Date.now()) / 60000);
-            const limCount = parsed.value.limits.length;
-            dbStatus = `${hasReal ? "✓" : "✗"} key · ${limCount} limits · ${expMin > 0 ? `${expMin}m left` : "expired"}`;
-          }
-        } finally {
-          db.close();
-        }
-      } catch { /* dbStatus stays default */ }
-      lines.push(`  db  ${dbStatus}`);
+      lines.push(`  poll ${fetchAge} ago · write ${writeStatus} · ${pollTimer ? "active" : "idle"}`);
 
       if (diag.lastError) {
         lines.push(`  ⚠ ${diag.lastError}`);
@@ -607,8 +570,38 @@ export function registerUsageTracking(pi: ExtensionAPI): void {
     },
   });
 
-  // session_start — write cached usage to db and start polling
-  pi.on("session_start", (_event, _ctx: SessionStartContext) => {
+  // session_start — write cached usage to db, patch authStorage to
+  // recognise llmgateway as a usage provider, and start polling.
+  //
+  // omp's #collectUsageRequests skips providers without a registered
+  // UsageProvider. llmgateway is extension-registered, so it has no
+  // built-in usage provider — we monkey-patch authStorage.usageProviderFor
+  // to return a dummy provider that returns empty limits. our extension
+  // writes the real data to the agent.db cache table; when omp calls
+  // #fetchUsageCached, it finds our fresh cache entry and returns it
+  // instead of calling the dummy provider.
+  pi.on("session_start", (_event, ctx: { modelRegistry?: { authStorage?: { usageProviderFor?: (provider: string) => unknown } } }) => {
+    const authStorage = ctx.modelRegistry?.authStorage;
+    if (authStorage?.usageProviderFor) {
+      const original = authStorage.usageProviderFor.bind(authStorage);
+      authStorage.usageProviderFor = (provider: string): unknown => {
+        if (provider === PROVIDER) {
+          return {
+            id: PROVIDER,
+            fetchUsage: async (): Promise<UsageReport | null> => ({
+              provider: PROVIDER,
+              fetchedAt: Date.now(),
+              limits: [],
+              notes: [],
+            }),
+            supports: (params: { provider: string }) => params.provider === PROVIDER,
+            validatesCredentials: false,
+          };
+        }
+        return original(provider);
+      };
+    }
+
     const cookie = loadCookie();
     if (!cookie) return;
     const cached = loadCachedUsage();
