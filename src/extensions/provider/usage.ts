@@ -281,9 +281,6 @@ function buildReport(usage: DevPassUsage): UsageReport {
   if (usage.creditsLimit > 0) {
     const usedFraction = Math.min(usage.creditsUsed / usage.creditsLimit, 1);
     const remaining = usage.creditsLimit - usage.creditsUsed;
-    const resetsAt = usage.billingCycleStart
-      ? new Date(usage.billingCycleStart).getTime()
-      : undefined;
     limits.push({
       id: "llmgateway:devplan",
       label: `DevPass ${usage.plan} (monthly)`,
@@ -294,7 +291,7 @@ function buildReport(usage: DevPassUsage): UsageReport {
         remainingFraction: Math.max(0, 1 - usedFraction),
         unit: "USD",
       },
-      window: { id: "7d", label: "Billing Cycle", ...resetsAt ? { resetsAt } : {} },
+      window: { id: "7d", label: "Billing Cycle" },
       notes: [
         `${formatCurrency(remaining)} remaining of ${formatCurrency(usage.creditsLimit)} (monthly)`,
       ],
