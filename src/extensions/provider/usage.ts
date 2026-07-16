@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { Database } from "bun:sqlite";
+import { configLoader } from "../../config";
 
 const AGENT_DIR = join(homedir(), ".omp", "agent");
 const STATE_FILE = join(AGENT_DIR, "cache", "llmgateway-usage.json");
@@ -310,7 +311,8 @@ function buildUsageCacheKey(): string | null {
   }
   if (!apiKey) return null;
   const identity = `api_key|secret:${Bun.hash(apiKey.trim()).toString(16)}`;
-  return `usage_cache:report:${PROVIDER}:https://api.llmgateway.io:${identity}`;
+  const baseUrl = configLoader.getConfig().baseUrl.replace(/\/+$/, "");
+  return `usage_cache:report:${PROVIDER}:${baseUrl}:${identity}`;
 }
 
 /** write the UsageReport into agent.db's cache table so omp's
