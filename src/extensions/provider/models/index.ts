@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ProviderModelConfig } from "@oh-my-pi/pi-coding-agent";
 import type { LLMGatewayApiModel } from "../../../types/models-api";
 import { isIncludedChatModel, toProviderModelConfig } from "./map";
 

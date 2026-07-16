@@ -1,45 +1,44 @@
-# Pi LLM Gateway Extension
+# omp LLM Gateway Extension
 
-A Pi extension that adds [LLM Gateway](https://llmgateway.io) as a model provider, giving you access to 160+ chat models from OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, and many others through a single OpenAI-compatible API.
+An omp extension that adds [LLM Gateway](https://llmgateway.io) as a model provider, giving you access to 200+ chat models from OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, and many others through a single OpenAI-compatible API.
 
-## Installation
+## installation
 
-### Get API Key
+### get API key
 
-Sign up at [llmgateway.io](https://llmgateway.io) to get an API key.
+sign up at [llmgateway.io](https://llmgateway.io) to get an API key.
 
-### Configure Credentials
+### configure credentials
 
-Add your API key to `~/.pi/agent/auth.json` (recommended):
+add your API key to the omp auth store (recommended):
 
-```json
-{
-  "llmgateway": { "type": "api_key", "key": "your-api-key-here" }
-}
+```bash
+omp auth-broker login llmgateway
 ```
 
-Or set an environment variable:
+or set an environment variable:
 
 ```bash
 export LLMGATEWAY_API_KEY="your-api-key-here"
 ```
 
-### Install Extension
+### install extension
+
+install as an omp plugin:
 
 ```bash
-# From npm
-pi install npm:@mcowger/pi-llmgateway
-
-# From git
-pi install git:github.com/mcowger/pi-llmgateway
-
-# Local development
-pi -e ./src/extensions/provider/index.ts
+omp plugin install git:github.com/cawilliamson/omp-llmgateway
 ```
 
-## Usage
+or for local development:
 
-Select `llmgateway` as your provider and choose from available models:
+```bash
+omp -e ./src/extensions/provider/index.ts
+```
+
+## usage
+
+select `llmgateway` as your provider and choose from available models:
 
 ```
 /model llmgateway gpt-5
@@ -48,75 +47,67 @@ Select `llmgateway` as your provider and choose from available models:
 /model llmgateway auto
 ```
 
-The special `auto` model lets the gateway pick the best provider and model for each request based on the configured routing strategy.
+the special `auto` model lets the gateway pick the best provider and model for each request based on the configured routing strategy.
 
-## Settings
+## slash commands
 
-Configure with `/llmgateway:settings`:
+- `/llmgateway:refresh` — refresh the model list from the live API
+- `/llmgateway:settings` — configure routing, web search, base URL, and deactivated models
 
-| Setting | Values | Default | Description |
+## settings
+
+configure with `/llmgateway:settings`:
+
+| setting | values | default | description |
 |---|---|---|---|
-| `routing` | `auto`, `price`, `throughput`, `latency` | `auto` | Provider routing strategy. Note: coding (dev) plans only support `auto` and `price`. |
-| `webSearch` | `enabled`, `disabled` | `disabled` | Enable native web search for models that support it. |
+| `routing` | `auto`, `price`, `throughput`, `latency` | `auto` | provider routing strategy. note: coding (dev) plans only support `auto` and `price`. |
+| `webSearch` | `enabled`, `disabled` | `disabled` | enable native web search for models that support it. |
 | `baseUrl` | URL string | `https://api.llmgateway.io/v1` | API base URL for self-hosted instances. |
-| `includeDeactivated` | `include`, `ignore` | `ignore` | Show deactivated models (may stop working at any time). |
+| `includeDeactivated` | `include`, `ignore` | `ignore` | show deactivated models (may stop working at any time). |
 
-Settings can also be changed with `pi config`.
+## model auto-population
 
-## Compat values
+models are seeded from a hardcoded snapshot (`src/extensions/provider/models/static.ts`) and refreshed from the live `/v1/models` API on each session start. use `/llmgateway:refresh` to manually trigger a refresh at any time.
 
-The extension sends all requests in standard OpenAI Chat Completions format. The LLM Gateway normalises everything server-side:
+## compat values
+
+the extension sends all requests in standard OpenAI Chat Completions format. the LLM Gateway normalises everything server-side:
 
 - `max_tokens` is used for all models (the gateway translates to `max_completion_tokens` for GPT-5/o-series internally)
 - `developer` role is not used (`system` role is sent for all models)
-- Reasoning is controlled via top-level `reasoning_effort` (`none|minimal|low|medium|high|xhigh|max`)
+- reasoning is controlled via top-level `reasoning_effort` (`none|minimal|low|medium|high|xhigh|max`)
 - `reasoning_content` on assistant messages is not required (the gateway reconstructs it for upstreams that need it)
-- Prompt caching is managed by the gateway
+- prompt caching is managed by the gateway
 
-## Self-hosted instances
+## self-hosted instances
 
-Change the base URL in settings to point to your own LLM Gateway deployment:
+change the base URL in settings to point to your own LLM Gateway deployment:
 
 ```
-/llmgateway:settings → Connection → Base URL → https://your-gateway.example.com/v1
+/llmgateway:settings → Base URL → https://your-gateway.example.com/v1
 ```
 
-Restart Pi after changing the URL.
+restart omp after changing the URL.
 
-## Updating the Model Snapshot
-
-Models are seeded from a hardcoded snapshot (`src/extensions/provider/models/static.ts`) and refreshed from the live `/v1/models` API on each session start. To update the snapshot (e.g. after significant model changes):
-
-1. Run `bun run test` — it fetches the live API and reports drift
-2. Regenerate the snapshot by running the generator script
-3. Re-run `bun run test` to confirm no drift
-
-## Development
+## development
 
 ```bash
-git clone https://github.com/mcowger/pi-llmgateway.git
-cd pi-llmgateway
+git clone https://github.com/cawilliamson/omp-llmgateway.git
+cd omp-llmgateway
 bun install
 ```
 
-### Commands
+### commands
 
 ```bash
 bun run typecheck   # TypeScript type check
 bun run lint        # Biome lint
 bun run format      # Biome format (auto-fix)
 bun run test        # Vitest (includes live API drift check)
-bun run gen:schema  # Regenerate schema.json from config.ts
 ```
 
-## Requirements
-
-- Pi coding agent v0.67.68+
-- LLM Gateway API key (configured in `~/.pi/agent/auth.json` or via `LLMGATEWAY_API_KEY`)
-
-## Links
+## links
 
 - [LLM Gateway](https://llmgateway.io)
 - [LLM Gateway Docs](https://docs.llmgateway.io)
 - [LLM Gateway GitHub](https://github.com/theopenco/llmgateway)
-- [Pi Documentation](https://buildwithpi.ai/)

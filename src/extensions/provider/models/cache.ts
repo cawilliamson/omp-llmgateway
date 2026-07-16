@@ -1,19 +1,15 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { homedir } from "node:os";
+import type { ProviderModelConfig } from "@oh-my-pi/pi-coding-agent";
 
 const CACHE_FILENAME = "llmgateway-models.json";
 
 function getCachePath(): string {
-  // Pi exposes getAgentDir() on the coding-agent package; fall back to a
-  // temp path when running outside of Pi (e.g. in tests).
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getAgentDir } = require("@earendil-works/pi-coding-agent");
-    return join(getAgentDir(), "cache", CACHE_FILENAME);
-  } catch {
-    return join(process.env.TMPDIR ?? "/tmp", CACHE_FILENAME);
-  }
+  // omp's agent dir is ~/.omp/agent/ — hardcoded to avoid a runtime value
+  // import from @oh-my-pi/pi-coding-agent which omp's jiti loader can't
+  // resolve at load time
+  return join(homedir(), ".omp", "agent", "cache", CACHE_FILENAME);
 }
 
 interface CacheFile {
@@ -22,7 +18,7 @@ interface CacheFile {
   models: ProviderModelConfig[];
 }
 
-/** Read the on-disk model cache. Returns an empty array on any read/parse error. */
+/** read the on-disk model cache. returns an empty array on any read/parse error */
 export function loadCachedModels(): ProviderModelConfig[] {
   try {
     const raw = readFileSync(getCachePath(), "utf-8");
@@ -34,7 +30,7 @@ export function loadCachedModels(): ProviderModelConfig[] {
   }
 }
 
-/** Write the model list to the on-disk cache. Silently ignores write errors. */
+/** write the model list to the on-disk cache. silently ignores write errors */
 export function writeCachedModels(models: ProviderModelConfig[]): void {
   try {
     const path = getCachePath();
@@ -46,6 +42,6 @@ export function writeCachedModels(models: ProviderModelConfig[]): void {
     };
     writeFileSync(path, JSON.stringify(data, null, 2), "utf-8");
   } catch {
-    // Non-fatal: a stale or missing cache just means we use the static snapshot.
+    // non-fatal: a stale or missing cache just means we use the static snapshot
   }
 }

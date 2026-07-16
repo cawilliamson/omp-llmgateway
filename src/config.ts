@@ -1,9 +1,11 @@
 import {
-  ConfigLoader,
-  registerSettingsCommand,
-  type SettingsSection,
-} from "@aliou/pi-utils-settings";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export const LLMGATEWAY_CONFIG_UPDATED_EVENT =
   "llmgateway:config:updated" as const;
@@ -12,42 +14,19 @@ export interface LLMGatewayConfigUpdatedPayload {
   config: ResolvedLLMGatewayConfig;
 }
 
-/** User-facing config schema (sparse — only set keys are persisted). */
+/** user-facing config schema (sparse — only set keys are persisted) */
 export interface LLMGatewayConfig {
-  /**
-   * Override the base URL for self-hosted LLM Gateway instances.
-   * Defaults to "https://api.llmgateway.io/v1".
-   */
+  /** override the base URL for self-hosted LLM Gateway instances */
   baseUrl?: string;
-
-  /**
-   * Provider routing strategy. Controls which upstream provider the gateway
-   * selects for auto-routed model IDs.
-   *
-   * - "auto"       Full weighted smart-routing score (default).
-   * - "price"      Optimise for lowest cost.
-   * - "throughput" Optimise for highest throughput.
-   * - "latency"    Optimise for lowest latency (streaming requests only).
-   *
-   * Note: on coding (dev) plans only "auto" and "price" are available.
-   */
+  /** provider routing strategy */
   routing?: "auto" | "price" | "throughput" | "latency";
-
-  /**
-   * Enable native web search for models that support it. When true, the
-   * gateway instructs the model to search the web for real-time information.
-   */
+  /** enable native web search for models that support it */
   webSearch?: boolean;
-
-  /**
-   * When true, include models marked as deactivated in the model list.
-   * Deactivated models may be removed from the gateway at any time.
-   * Defaults to false.
-   */
+  /** include deactivated models in the model list */
   includeDeactivated?: boolean;
 }
 
-/** Resolved config with all defaults applied. */
+/** resolved config with all defaults applied */
 export interface ResolvedLLMGatewayConfig {
   baseUrl: string;
   routing: "auto" | "price" | "throughput" | "latency";
@@ -62,10 +41,76 @@ const DEFAULTS: ResolvedLLMGatewayConfig = {
   includeDeactivated: false,
 };
 
-export const configLoader = new ConfigLoader<
-  LLMGatewayConfig,
-  ResolvedLLMGatewayConfig
->("llmgateway", DEFAULTS);
+const CONFIG_FILE = join(
+  homedir(),
+  ".omp",
+  "agent",
+  "cache",
+  "llmgateway-config.json",
+);
+
+/** resolve sparse config with defaults */
+function resolve(config: LLMGatewayConfig): ResolvedLLMGatewayConfig {
+  return {
+    baseUrl: config.baseUrl ?? DEFAULTS.baseUrl,
+    routing: config.routing ?? DEFAULTS.routing,
+    webSearch: config.webSearch ?? DEFAULTS.webSearch,
+    includeDeactivated: config.includeDeactivated ?? DEFAULTS.includeDeactivated,
+  };
+}
+
+/** minimal config loader — persists to ~/.omp/agent/cache/llmgateway-config.json */
+class InlineConfigLoader {
+  private current: ResolvedLLMGatewayConfig = { ...DEFAULTS };
+  private loaded = false;
+
+  async load(): Promise<void> {
+    if (this.loaded) return;
+    this.loaded = true;
+    try {
+      const raw = readFileSync(CONFIG_FILE, "utf-8");
+      const parsed = JSON.parse(raw) as LLMGatewayConfig;
+      this.current = resolve(parsed);
+    } catch {
+      this.current = { ...DEFAULTS };
+    }
+  }
+
+  getConfig(): ResolvedLLMGatewayConfig {
+    return { ...this.current };
+  }
+
+  async update(patch: Partial<LLMGatewayConfig>): Promise<void> {
+    const sparse = this.getSparse();
+    const merged = { ...sparse, ...patch };
+    this.current = resolve(merged);
+    this.persist(merged);
+  }
+
+  private getSparse(): LLMGatewayConfig {
+    const sparse: LLMGatewayConfig = {};
+    if (this.current.baseUrl !== DEFAULTS.baseUrl)
+      sparse.baseUrl = this.current.baseUrl;
+    if (this.current.routing !== DEFAULTS.routing)
+      sparse.routing = this.current.routing;
+    if (this.current.webSearch !== DEFAULTS.webSearch)
+      sparse.webSearch = this.current.webSearch;
+    if (this.current.includeDeactivated !== DEFAULTS.includeDeactivated)
+      sparse.includeDeactivated = this.current.includeDeactivated;
+    return sparse;
+  }
+
+  private persist(config: LLMGatewayConfig): void {
+    try {
+      mkdirSync(dirname(CONFIG_FILE), { recursive: true });
+      writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+    } catch {
+      // non-fatal — config just won't persist across restarts
+    }
+  }
+}
+
+export const configLoader = new InlineConfigLoader();
 
 export function emitConfigUpdated(pi: ExtensionAPI): void {
   pi.events.emit(LLMGATEWAY_CONFIG_UPDATED_EVENT, {
@@ -73,84 +118,102 @@ export function emitConfigUpdated(pi: ExtensionAPI): void {
   });
 }
 
+/** register /llmgateway:settings command with interactive select-based UI */
 export function registerLLMGatewaySettings(pi: ExtensionAPI): void {
-  registerSettingsCommand<LLMGatewayConfig, ResolvedLLMGatewayConfig>(pi, {
-    commandName: "llmgateway:settings",
-    title: "LLM Gateway Settings",
-    configStore: configLoader,
-    buildSections: (tabConfig, resolved): SettingsSection[] => {
-      const cfg = (k: keyof LLMGatewayConfig) =>
-        tabConfig?.[k] ?? resolved[k as keyof ResolvedLLMGatewayConfig];
+  pi.registerCommand("llmgateway:settings", {
+    description: "configure llm gateway settings (routing, web search, base url, deactivated models)",
+    handler: async (_args, ctx) => {
+      const config = configLoader.getConfig();
 
-      return [
-        {
-          label: "Routing",
-          items: [
-            {
-              id: "routing",
-              label: "Routing strategy",
-              description:
-                "Provider selection strategy. 'auto' uses the full weighted smart-routing score. 'price', 'throughput', 'latency' weight that factor 90%. Note: coding (dev) plans only support 'auto' and 'price'.",
-              currentValue: String(cfg("routing")),
-              values: ["auto", "price", "throughput", "latency"],
-            },
-            {
-              id: "webSearch",
-              label: "Web search",
-              description:
-                "Enable native web search for models that support it. The model can search the web for real-time information.",
-              currentValue: cfg("webSearch") ? "enabled" : "disabled",
-              values: ["enabled", "disabled"],
-            },
-          ],
-        },
-        {
-          label: "Connection",
-          items: [
-            {
-              id: "baseUrl",
-              label: "Base URL",
-              description:
-                "API base URL. Change this for self-hosted LLM Gateway instances. Restart Pi after changing.",
-              currentValue: String(cfg("baseUrl")),
-              values: [],
-            },
-          ],
-        },
-        {
-          label: "Models",
-          items: [
-            {
-              id: "includeDeactivated",
-              label: "Include deactivated models",
-              description:
-                "Show models that the gateway has flagged as deactivated. These may stop working at any time.",
-              currentValue: cfg("includeDeactivated") ? "include" : "ignore",
-              values: ["include", "ignore"],
-            },
-          ],
-        },
-      ];
-    },
-    onSettingChange: (id, newValue, config) => {
-      switch (id) {
-        case "routing":
-          return {
-            ...config,
-            routing: newValue as ResolvedLLMGatewayConfig["routing"],
-          };
-        case "webSearch":
-          return { ...config, webSearch: newValue === "enabled" };
-        case "baseUrl":
-          return { ...config, baseUrl: newValue };
-        case "includeDeactivated":
-          return { ...config, includeDeactivated: newValue === "include" };
-        default:
-          return null;
+      const section = await ctx.ui.select(
+        "LLM Gateway Settings — choose a setting to change",
+        [
+          { label: `Routing strategy: ${config.routing}`, value: "routing" },
+          {
+            label: `Web search: ${config.webSearch ? "enabled" : "disabled"}`,
+            value: "webSearch",
+          },
+          { label: `Base URL: ${config.baseUrl}`, value: "baseUrl" },
+          {
+            label: `Include deactivated: ${config.includeDeactivated ? "include" : "ignore"}`,
+            value: "includeDeactivated",
+          },
+        ],
+        undefined,
+      );
+
+      if (!section) return;
+
+      switch (section) {
+        case "routing": {
+          const choice = await ctx.ui.select(
+            "Routing strategy (coding/dev plans only support auto and price)",
+            [
+              { label: "auto — full weighted smart-routing score", value: "auto" },
+              { label: "price — optimise for lowest cost", value: "price" },
+              { label: "throughput — optimise for highest throughput", value: "throughput" },
+              { label: "latency — optimise for lowest latency", value: "latency" },
+            ],
+            config.routing,
+          );
+          if (choice) {
+            await configLoader.update({
+              routing: choice as ResolvedLLMGatewayConfig["routing"],
+            });
+            emitConfigUpdated(pi);
+            ctx.ui.notify(`routing → ${choice}`, "info");
+          }
+          break;
+        }
+        case "webSearch": {
+          const choice = await ctx.ui.select(
+            "Web search",
+            [
+              { label: "enabled", value: "true" },
+              { label: "disabled", value: "false" },
+            ],
+            config.webSearch ? "true" : "false",
+          );
+          if (choice) {
+            await configLoader.update({ webSearch: choice === "true" });
+            emitConfigUpdated(pi);
+            ctx.ui.notify(`web search → ${choice}`, "info");
+          }
+          break;
+        }
+        case "baseUrl": {
+          const input = await ctx.ui.input(
+            "Base URL (for self-hosted instances)",
+            config.baseUrl,
+          );
+          if (input && input.trim()) {
+            await configLoader.update({ baseUrl: input.trim() });
+            emitConfigUpdated(pi);
+            ctx.ui.notify(`base URL → ${input.trim()}`, "info");
+            ctx.ui.notify("restart omp for the base URL change to take effect", "warning");
+          }
+          break;
+        }
+        case "includeDeactivated": {
+          const choice = await ctx.ui.select(
+            "Include deactivated models",
+            [
+              { label: "include — show deactivated models", value: "true" },
+              { label: "ignore — hide deactivated models", value: "false" },
+            ],
+            config.includeDeactivated ? "true" : "false",
+          );
+          if (choice) {
+            await configLoader.update({ includeDeactivated: choice === "true" });
+            emitConfigUpdated(pi);
+            ctx.ui.notify(
+              `include deactivated → ${choice === "true" ? "include" : "ignore"}`,
+              "info",
+            );
+          }
+          break;
+        }
       }
-    },
-    onSave: async () => {
-      emitConfigUpdated(pi);
     },
   });
 }

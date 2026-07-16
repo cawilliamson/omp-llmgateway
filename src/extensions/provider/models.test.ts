@@ -63,8 +63,8 @@ async function fetchLiveModels(): Promise<ApiModel[]> {
     "https://api.llmgateway.io/v1/models?exclude_deprecated=true",
     {
       headers: {
-        "HTTP-Referer": "https://github.com/mcowger/pi-llmgateway",
-        "X-Title": "npm:@mcowger/pi-llmgateway",
+        "HTTP-Referer": "https://github.com/cawilliamson/omp-llmgateway",
+        "X-Title": "omp-llmgateway",
       },
     },
   );

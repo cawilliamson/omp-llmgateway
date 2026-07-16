@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ProviderModelConfig } from "@oh-my-pi/pi-coding-agent";
 
 /**
  * Hardcoded snapshot of chat models from the LLM Gateway /v1/models API.

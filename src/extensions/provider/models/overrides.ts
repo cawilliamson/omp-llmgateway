@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ProviderModelConfig } from "@oh-my-pi/pi-coding-agent";
 
 /**
  * Per-model or per-family overrides applied on top of the dynamically-mapped

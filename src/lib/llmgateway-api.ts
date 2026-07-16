@@ -32,8 +32,8 @@ export async function fetchModels(opts?: {
   const combined = combineSignals(opts?.signal);
 
   const headers: Record<string, string> = {
-    "HTTP-Referer": "https://github.com/mcowger/pi-llmgateway",
-    "X-Title": "npm:@mcowger/pi-llmgateway",
+    "HTTP-Referer": "https://github.com/cawilliamson/omp-llmgateway",
+    "X-Title": "omp-llmgateway",
   };
 
   if (opts?.apiKey) {

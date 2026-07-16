@@ -1,8 +1,7 @@
-import { streamSimpleOpenAICompletions } from "@earendil-works/pi-ai/openai-completions";
 import type {
   ExtensionAPI,
   ProviderModelConfig,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import {
   configLoader,
   emitConfigUpdated,
@@ -19,45 +18,37 @@ import {
   loadCachedModels,
   writeCachedModels,
 } from "./models";
-import { type AnyStreamSimple, wrapWithRouting } from "./routing";
+import { buildRoutingBodyFields, hasRoutingFields } from "./routing";
+
+const PROVIDER_ID = "llmgateway";
 
 function registerProvider(
   pi: ExtensionAPI,
   models: ProviderModelConfig[],
 ): void {
-  const { baseUrl, routing, webSearch } = configLoader.getConfig();
+  const { baseUrl } = configLoader.getConfig();
 
-  const baseStreamSimple = streamSimpleOpenAICompletions as AnyStreamSimple;
-
-  const config: Parameters<ExtensionAPI["registerProvider"]>[1] = {
+  pi.registerProvider(PROVIDER_ID, {
     baseUrl,
     apiKey: "$LLMGATEWAY_API_KEY",
     api: "openai-completions",
     authHeader: true,
     headers: {
-      "HTTP-Referer": "https://github.com/mcowger/pi-llmgateway",
-      "X-Title": "npm:@mcowger/pi-llmgateway",
+      "HTTP-Referer": "https://github.com/cawilliamson/omp-llmgateway",
+      "X-Title": "omp-llmgateway",
+      "x-source": "pi-agent",
     },
     models,
-  };
-
-  if (baseStreamSimple) {
-    config.streamSimple = wrapWithRouting(baseStreamSimple, {
-      routing,
-      webSearch,
-    }) as never;
-  }
-
-  pi.registerProvider("llmgateway", config);
+  });
 }
 
 export default async function (pi: ExtensionAPI) {
   await configLoader.load();
 
-  // Stale-while-revalidate seed: read the on-disk model cache so that models
+  // stale-while-revalidate seed: read the on-disk model cache so that models
   // from a previous session_start are available at load time (before the live
-  // fetch). This prevents "No models match pattern" warnings on saved scoped
-  // models when Pi validates them during startup — before session_start fires.
+  // fetch). this prevents "no models match pattern" warnings on saved scoped
+  // models when omp validates them during startup — before session_start fires.
   let liveModels: ProviderModelConfig[] = loadCachedModels();
   const seedModels = getSeedModels(liveModels, LLMGATEWAY_STATIC_MODELS);
 
@@ -67,7 +58,37 @@ export default async function (pi: ExtensionAPI) {
   registerProvider(pi, seedModels);
   registerLLMGatewaySettings(pi);
 
-  // Re-register when settings change (e.g. baseUrl, routing, webSearch).
+  // /llmgateway:refresh — manually trigger model list refresh from the live API
+  pi.registerCommand("llmgateway:refresh", {
+    description: "refresh the LLM Gateway model list from the live API",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify("fetching models from LLM Gateway…", "info");
+
+      const { baseUrl, includeDeactivated } = configLoader.getConfig();
+      const apiKey = process.env.LLMGATEWAY_API_KEY;
+
+      const result = await fetchModels({ baseUrl, apiKey });
+
+      if (result.success) {
+        const fetched = buildModelsFromApi(result.data, includeDeactivated);
+        const before = liveModels.length;
+        liveModels = fetched;
+        await writeCachedModels(fetched);
+        registerProvider(pi, fetched);
+        ctx.ui.notify(
+          `LLM Gateway: refreshed ${fetched.length} models (was ${before})`,
+          "info",
+        );
+      } else {
+        ctx.ui.notify(
+          "LLM Gateway: refresh failed — check your API key and network",
+          "warning",
+        );
+      }
+    },
+  });
+
+  // re-register when settings change (e.g. baseUrl, routing, webSearch).
   pi.events.on(LLMGATEWAY_CONFIG_UPDATED_EVENT, () => {
     registerProvider(pi, liveModels.length > 0 ? liveModels : seedModels);
   });
@@ -75,6 +96,21 @@ export default async function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => {
     fetchAbort?.abort();
     fetchAbort = undefined;
+  });
+
+  // inject routing/web_search into the request body before it reaches the gateway
+  pi.on("before_provider_request", async (event, ctx) => {
+    if (ctx.model?.provider !== PROVIDER_ID) return;
+
+    const { routing, webSearch } = configLoader.getConfig();
+    const options = { routing, webSearch };
+
+    if (!hasRoutingFields(options)) return;
+
+    const extra = buildRoutingBodyFields(options);
+    const payload = event.payload as Record<string, unknown>;
+
+    return { ...payload, ...extra };
   });
 
   pi.on("message_end", (event, ctx) => {
@@ -88,13 +124,6 @@ export default async function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     const { baseUrl, includeDeactivated } = configLoader.getConfig();
-
-    // Drain any config messages accumulated before the session.
-    for (const message of configLoader.drainMessages()) {
-      ctx.ui.notify(message, "warning");
-    }
-
-    emitConfigUpdated(pi);
 
     if (!modelsLoaded) {
       modelsLoaded = true;
@@ -113,6 +142,10 @@ export default async function (pi: ExtensionAPI) {
         liveModels = fetched;
         await writeCachedModels(fetched);
         registerProvider(pi, fetched);
+        ctx.ui.notify(
+          `LLM Gateway: loaded ${fetched.length} models`,
+          "info",
+        );
       }
     }
   });

@@ -1,25 +1,25 @@
 {
-  "name": "@mcowger/pi-llmgateway",
-  "version": "0.1.2",
+  "name": "omp-llmgateway",
+  "version": "0.2.0",
+  "description": "omp extension providing an LLM Gateway inference API provider with auto-populating model list",
   "license": "MIT",
   "type": "module",
-  "private": false,
+  "private": true,
+  "module": "src/extensions/provider/index.ts",
+  "main": "src/extensions/provider/index.ts",
   "keywords": [
-    "pi-package",
-    "pi-extension",
-    "pi"
+    "omp",
+    "omp-extension",
+    "llmgateway"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mcowger/pi-llmgateway.git"
+    "url": "git+https://github.com/cawilliamson/omp-llmgateway.git"
   },
-  "pi": {
+  "omp": {
     "extensions": [
       "./src/extensions/provider/index.ts"
     ]
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "files": [
     "src",
@@ -27,29 +27,6 @@
     "README.md",
     "!src/**/*.test.ts"
   ],
-  "dependencies": {
-    "@aliou/pi-utils-settings": "^0.17.0",
-    "@earendil-works/pi-ai": "0.79.10"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
-    "@changesets/cli": "^2.27.11",
-    "@earendil-works/pi-coding-agent": "0.79.10",
-    "@earendil-works/pi-tui": "0.79.10",
-    "@types/node": "^22.0.0",
-    "husky": "^9.1.7",
-    "ts-json-schema-generator": "^2.4.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
-  },
-  "overrides": {
-    "@earendil-works/pi-ai": "0.79.10",
-    "@earendil-works/pi-tui": "0.79.10"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
@@ -57,19 +34,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "gen:schema": "ts-json-schema-generator --path src/config.ts --type LLMGatewayConfig --no-type-check -o schema.json",
-    "check:schema": "ts-json-schema-generator --path src/config.ts --type LLMGatewayConfig --no-type-check -o /tmp/schema-check.json && diff -q schema.json /tmp/schema-check.json",
-    "check:lockfile": "bun install --frozen-lockfile",
-    "prepare": "[ -d .git ] && husky || true",
-    "changeset": "changeset",
-    "version": "changeset version",
-    "release": "bun changeset publish"
+    "check:schema": "ts-json-schema-generator --path src/config.ts --type LLMGatewayConfig --no-type-check -o /tmp/schema-check.json && diff -q schema.json /tmp/schema-check.json"
   },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": {
-      "optional": true
-    },
-    "@earendil-works/pi-tui": {
-      "optional": true
-    }
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": "*"
   }
 }
