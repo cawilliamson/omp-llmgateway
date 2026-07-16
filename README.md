@@ -53,6 +53,8 @@ the special `auto` model lets the gateway pick the best provider and model for e
 
 - `/llmgateway:refresh` — refresh the model list from the live API
 - `/llmgateway:settings` — configure routing, web search, base URL, and deactivated models
+- `/llmgateway:login` — capture your LLM Gateway session cookie for DevPass usage tracking
+- `/llmgateway:status` — show DevPass credit balance, usage, and poll diagnostics
 
 ## settings
 

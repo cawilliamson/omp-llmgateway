@@ -30,6 +30,7 @@ src/
       index.ts                               # provider factory: registers provider + session lifecycle
       context-overflow.ts                    # normalise context-overflow errors for omp compaction
       routing.ts                             # routing/web_search body field builder
+      usage.ts                               # DevPass credit tracking via dashboard API cookie → agent.db
       models/
         index.ts                             # re-exports + buildModelsFromApi + getSeedModels helpers
         static.ts                            # hardcoded model snapshot (zero-latency seed)
@@ -73,8 +74,9 @@ the gateway reads `routing` and `web_search` as JSON body fields. the `before_pr
 
 ## slash commands
 
-- `/llmgateway:settings` — configure routing strategy, web search, base URL, deactivated models
 - `/llmgateway:refresh` — refresh the model list from the live API
+- `/llmgateway:login` — capture LLM Gateway session cookie for DevPass usage bars
+- `/llmgateway:status` — show DevPass credit balance, usage, and poll diagnostics
 
 ## settings
 

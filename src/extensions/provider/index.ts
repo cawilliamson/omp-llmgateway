@@ -19,6 +19,7 @@ import {
   writeCachedModels,
 } from "./models";
 import { buildRoutingBodyFields, hasRoutingFields } from "./routing";
+import { registerUsageTracking } from "./usage";
 
 const PROVIDER_ID = "llmgateway";
 
@@ -56,6 +57,7 @@ export default async function (pi: ExtensionAPI) {
   let fetchAbort: AbortController | undefined;
 
   registerProvider(pi, seedModels);
+  registerUsageTracking(pi);
   registerLLMGatewaySettings(pi);
 
   // /llmgateway:refresh — manually trigger model list refresh from the live API
