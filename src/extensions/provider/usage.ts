@@ -364,6 +364,34 @@ function formatCurrency(amount: number): string {
   return `$${amount.toFixed(4)}`;
 }
 
+/** read the cached UsageReport from agent.db. returns null on any error. */
+function getCachedReport(): UsageReport | null {
+  try {
+    const db = new Database(DB_PATH, { readonly: true });
+    db.exec("PRAGMA busy_timeout = 5000");
+    try {
+      const primaryKey = buildUsageCacheKey();
+      const keys = primaryKey ? [primaryKey] : [];
+      const fallback = `usage_cache:report:${PROVIDER}:default:api_key|anonymous`;
+      if (!keys.includes(fallback)) keys.push(fallback);
+
+      for (const key of keys) {
+        const row = db.prepare("SELECT value FROM cache WHERE key = ?").get(key) as { value: string } | undefined;
+        if (!row) continue;
+        const parsed = JSON.parse(row.value) as { value: UsageReport; expiresAt: number };
+        if (parsed.expiresAt > Date.now()) {
+          return parsed.value;
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch {
+    // db read failed
+  }
+  return null;
+}
+
 // ─── public API: register commands and polling ──────────────────────────
 
 /** register /llmgateway:login, /llmgateway:status, and background polling */
@@ -579,25 +607,26 @@ export function registerUsageTracking(pi: ExtensionAPI): void {
   // writes the real data to the agent.db cache table; when omp calls
   // #fetchUsageCached, it finds our fresh cache entry and returns it
   // instead of calling the dummy provider.
-  pi.on("session_start", (_event, ctx: { modelRegistry?: { authStorage?: { usageProviderFor?: (provider: string) => unknown } } }) => {
+  // session_start — patch authStorage.fetchUsageReports to inject our
+  // cached DevPass usage report, write cached usage to db, and start polling.
+  //
+  // omp's #collectUsageRequests uses the private #usageProviderResolver
+  // field (not the public usageProviderFor method), so monkey-patching the
+  // public method is useless. instead we patch fetchUsageReports itself —
+  // the public method that the status line calls. we call the original to
+  // get built-in provider reports (ollama, anthropic, etc), then append our
+  // llmgateway report from the agent.db cache or a fresh fetch.
+  pi.on("session_start", (_event, ctx: { modelRegistry?: { authStorage?: { fetchUsageReports?: (opts?: { signal?: AbortSignal }) => Promise<unknown[]> | null } } }) => {
     const authStorage = ctx.modelRegistry?.authStorage;
-    if (authStorage?.usageProviderFor) {
-      const original = authStorage.usageProviderFor.bind(authStorage);
-      authStorage.usageProviderFor = (provider: string): unknown => {
-        if (provider === PROVIDER) {
-          return {
-            id: PROVIDER,
-            fetchUsage: async (): Promise<UsageReport | null> => ({
-              provider: PROVIDER,
-              fetchedAt: Date.now(),
-              limits: [],
-              notes: [],
-            }),
-            supports: (params: { provider: string }) => params.provider === PROVIDER,
-            validatesCredentials: false,
-          };
+    if (authStorage?.fetchUsageReports) {
+      const originalFetch = authStorage.fetchUsageReports.bind(authStorage);
+      authStorage.fetchUsageReports = async (opts?: { signal?: AbortSignal }): Promise<unknown[]> => {
+        const reports = await originalFetch(opts);
+        const ourReport = getCachedReport();
+        if (ourReport) {
+          return [...(reports ?? []), ourReport];
         }
-        return original(provider);
+        return reports ?? [];
       };
     }
 
