@@ -1,20 +1,27 @@
 {
-  "name": "omp-llmgateway",
-  "version": "0.2.0",
-  "description": "omp extension providing an LLM Gateway inference API provider with auto-populating model list",
+  "name": "pi-llmgateway",
+  "version": "0.3.0",
+  "description": "pi/omp extension providing an LLM Gateway inference API provider with auto-populating model list",
   "license": "MIT",
   "type": "module",
   "private": true,
   "module": "src/extensions/provider/index.ts",
   "main": "src/extensions/provider/index.ts",
   "keywords": [
+    "pi",
+    "pi-extension",
     "omp",
     "omp-extension",
     "llmgateway"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cawilliamson/omp-llmgateway.git"
+    "url": "git+https://github.com/cawilliamson/pi-llmgateway.git"
+  },
+  "pi": {
+    "extensions": [
+      "./src/extensions/provider/index.ts"
+    ]
   },
   "omp": {
     "extensions": [

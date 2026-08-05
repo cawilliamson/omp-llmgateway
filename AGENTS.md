@@ -1,10 +1,10 @@
-# omp-llmgateway
+# pi-llmgateway
 
-omp extension providing an LLM Gateway inference API provider.
+pi/omp extension providing an LLM Gateway inference API provider. works on both runtimes (pi and omp) via runtime capability detection.
 
 ## purpose
 
-registers a `llmgateway` provider with omp that connects to [LLM Gateway](https://api.llmgateway.io/v1), an OpenAI-compatible inference API that routes to 200+ models from OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, and others.
+registers a `llmgateway` provider with the host agent that connects to [LLM Gateway](https://api.llmgateway.io/v1), an OpenAI-compatible inference API that routes to 200+ models from OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, and others.
 
 ## stack
 
@@ -23,14 +23,15 @@ TypeScript (strict mode), Biome, Vitest
 src/
   config.ts                                  # config schema, settings command, extension events
   lib/
-    env.ts                                   # API key resolution (auth store -> env var)
+    env.ts                                   # API key resolution (omp authStorage / pi getProviderAuth -> env var)
+    paths.ts                                 # agent state dir resolution across runtimes (~/.omp vs ~/.pi)
     llmgateway-api.ts                        # /v1/models fetch with timeout/abort
   extensions/
     provider/
       index.ts                               # provider factory: registers provider + session lifecycle
-      context-overflow.ts                    # normalise context-overflow errors for omp compaction
+      context-overflow.ts                    # normalise context-overflow errors for host compaction
       routing.ts                             # routing/web_search body field builder
-      usage.ts                               # DevPass credit tracking via dashboard API cookie → agent.db
+      usage.ts                               # DevPass credit tracking via dashboard API cookie → agent.db (omp-only)
       models/
         index.ts                             # re-exports + buildModelsFromApi + getSeedModels helpers
         static.ts                            # hardcoded model snapshot (zero-latency seed)
@@ -48,7 +49,7 @@ src/
 - provider name: `llmgateway`
 - base URL: `https://api.llmgateway.io/v1` (user-overridable for self-host)
 - API: `openai-completions`
-- auth: auth store entry for "llmgateway", fallback to `LLMGATEWAY_API_KEY` env var
+- auth: host auth store entry for "llmgateway" (omp authStorage / pi provider auth), fallback to `LLMGATEWAY_API_KEY` env var. the registered `apiKey` is the eagerly-resolved env token because omp treats bare strings as env names while pi requires a "$" prefix — no single declarative value works on both.
 - all models: `compat.supportsDeveloperRole: false`, `compat.maxTokensField: "max_tokens"`
 - reasoning models: `reasoning: true`, pass-through `thinkingLevelMap`
 
@@ -68,15 +69,15 @@ the gateway reads `routing` and `web_search` as JSON body fields. the `before_pr
 
 ## model loading (stale-while-revalidate)
 
-1. extension load (sync): read `${agentDir}/cache/llmgateway-models.json`; register provider with cached models. if cache is empty, fall back to the compiled-in `static.ts` snapshot. zero latency — omp's startup scoped-model validation sees models immediately.
+1. extension load (sync): read `${agentDir}/cache/llmgateway-models.json`; register provider with cached models. if cache is empty, fall back to the compiled-in `static.ts` snapshot. zero latency — startup scoped-model validation sees models immediately.
 2. `session_start`: fetch `/v1/models`, write result to cache, re-register provider with live list.
 3. `/llmgateway:refresh`: manually trigger a model list refresh at any time.
 
 ## slash commands
 
 - `/llmgateway:refresh` — refresh the model list from the live API
-- `/llmgateway:login` — capture LLM Gateway session cookie for DevPass usage bars
-- `/llmgateway:status` — show DevPass credit balance, usage, and poll diagnostics
+- `/llmgateway:login` — capture LLM Gateway session cookie for DevPass usage bars (omp only)
+- `/llmgateway:status` — show DevPass credit balance, usage, and poll diagnostics (omp only)
 
 ## settings
 

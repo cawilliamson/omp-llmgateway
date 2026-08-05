@@ -1,8 +1,8 @@
 { pkgs, ... }:
 
 pkgs.buildNpmPackage rec {
-  pname = "omp-llmgateway";
-  version = "0.2.0";
+  pname = "pi-llmgateway";
+  version = "0.3.0";
 
   src = ./.;
 
@@ -24,8 +24,8 @@ pkgs.buildNpmPackage rec {
   '';
 
   meta = {
-    description = "LLM Gateway provider for omp with auto-populating model list";
-    homepage = "https://github.com/cawilliamson/omp-llmgateway";
+    description = "LLM Gateway provider for pi and omp with auto-populating model list";
+    homepage = "https://github.com/cawilliamson/pi-llmgateway";
     license = pkgs.lib.licenses.mit;
   };
 }

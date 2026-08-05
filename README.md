@@ -1,6 +1,6 @@
-# omp LLM Gateway Extension
+# pi-llmgateway
 
-An omp extension that adds [LLM Gateway](https://llmgateway.io) as a model provider, giving you access to 200+ chat models from OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, and many others through a single OpenAI-compatible API.
+A [pi](https://github.com/badlogic/pi-mono) / [omp](https://github.com/can1357/oh-my-pi) extension that adds [LLM Gateway](https://llmgateway.io) as a model provider, giving you access to 200+ chat models from OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, and many others through a single OpenAI-compatible API.
 
 ## installation
 
@@ -10,29 +10,42 @@ sign up at [llmgateway.io](https://llmgateway.io) to get an API key.
 
 ### configure credentials
 
-add your API key to the omp auth store (recommended):
-
-```bash
-omp auth-broker login llmgateway
-```
-
-or set an environment variable:
+set an environment variable (works on both runtimes):
 
 ```bash
 export LLMGATEWAY_API_KEY="your-api-key-here"
 ```
 
-### install extension
-
-install as an omp plugin:
+or add your API key to the host auth store:
 
 ```bash
-omp plugin install git:github.com/cawilliamson/omp-llmgateway
+# pi
+pi   # then: /login llmgateway
+
+# omp
+omp auth-broker login llmgateway
 ```
 
-or for local development:
+### install extension
+
+pi — add to `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": ["git:github.com/cawilliamson/pi-llmgateway"]
+}
+```
+
+omp — install as a plugin:
 
 ```bash
+omp plugin install git:github.com/cawilliamson/pi-llmgateway
+```
+
+or for local development (either runtime):
+
+```bash
+pi -e ./src/extensions/provider/index.ts
 omp -e ./src/extensions/provider/index.ts
 ```
 
@@ -53,8 +66,8 @@ the special `auto` model lets the gateway pick the best provider and model for e
 
 - `/llmgateway:refresh` — refresh the model list from the live API
 - `/llmgateway:settings` — configure routing, web search, base URL, and deactivated models
-- `/llmgateway:login` — capture your LLM Gateway session cookie for DevPass usage tracking
-- `/llmgateway:status` — show DevPass credit balance, usage, and poll diagnostics
+- `/llmgateway:login` — capture your LLM Gateway session cookie for DevPass usage tracking (omp only)
+- `/llmgateway:status` — show DevPass credit balance, usage, and poll diagnostics (omp only)
 
 ## settings
 
@@ -70,6 +83,14 @@ configure with `/llmgateway:settings`:
 ## model auto-population
 
 models are seeded from a hardcoded snapshot (`src/extensions/provider/models/static.ts`) and refreshed from the live `/v1/models` API on each session start. use `/llmgateway:refresh` to manually trigger a refresh at any time.
+
+## runtime differences
+
+the extension runs on both pi and omp and detects the host at runtime:
+
+- **auth** — omp resolves keys via `ctx.modelRegistry.authStorage`, pi via `ctx.modelRegistry.getProviderAuth`. both fall back to `LLMGATEWAY_API_KEY`.
+- **state dir** — omp uses `~/.omp/agent`, pi uses `~/.pi/agent` (both honour `PI_CODING_AGENT_DIR`).
+- **usage tracking** — DevPass credit bars write into omp's `agent.db` and patch omp's `authStorage`; this feature is omp-only and disables itself on pi.
 
 ## compat values
 
@@ -89,13 +110,13 @@ change the base URL in settings to point to your own LLM Gateway deployment:
 /llmgateway:settings → Base URL → https://your-gateway.example.com/v1
 ```
 
-restart omp after changing the URL.
+restart the agent after changing the URL.
 
 ## development
 
 ```bash
-git clone https://github.com/cawilliamson/omp-llmgateway.git
-cd omp-llmgateway
+git clone https://github.com/cawilliamson/pi-llmgateway.git
+cd pi-llmgateway
 bun install
 ```
 
