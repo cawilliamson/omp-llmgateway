@@ -3,6 +3,9 @@
  * dashboard API and writes a UsageReport into agent.db so omp's built-in
  * `usage` status line segment shows the bar natively.
  *
+ * omp-only: pi has no agent.db usage-report mechanism, so the whole feature
+ * disables itself there (see the session_start gate below).
+ *
  * the dashboard API lives at internal.llmgateway.io and uses Better Auth
  * session cookies (__Secure-better-auth.session_token). the /orgs endpoint
  * with ?includePersonal=true returns the devpass org with credit fields.
@@ -10,11 +13,11 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
 import { Database } from "bun:sqlite";
 import { configLoader } from "../../config";
+import { getAgentDir } from "../../lib/paths";
 
-const AGENT_DIR = join(homedir(), ".omp", "agent");
+const AGENT_DIR = getAgentDir();
 const STATE_FILE = join(AGENT_DIR, "cache", "llmgateway-usage.json");
 const DB_PATH = join(AGENT_DIR, "agent.db");
 const DASHBOARD_API = "https://internal.llmgateway.io";
@@ -645,7 +648,10 @@ export function registerUsageTracking(pi: ExtensionAPI): void {
   // llmgateway report from the agent.db cache or a fresh fetch.
   pi.on("session_start", (_event, ctx: { modelRegistry?: { authStorage?: { fetchUsageReports?: (opts?: { signal?: AbortSignal }) => Promise<unknown[]> | null } } }) => {
     const authStorage = ctx.modelRegistry?.authStorage;
-    if (authStorage?.fetchUsageReports) {
+    // omp-only feature — pi's modelRegistry has no authStorage, and without
+    // it the db writes below would create a stray agent.db on pi
+    if (!authStorage) return;
+    if (authStorage.fetchUsageReports) {
       const originalFetch = authStorage.fetchUsageReports.bind(authStorage);
       authStorage.fetchUsageReports = async (opts?: { signal?: AbortSignal }): Promise<unknown[]> => {
         const reports = await originalFetch(opts);

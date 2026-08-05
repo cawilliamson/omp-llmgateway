@@ -31,12 +31,16 @@ function registerProvider(
 
   pi.registerProvider(PROVIDER_ID, {
     baseUrl,
-    apiKey: "LLMGATEWAY_API_KEY",
+    // resolve the key eagerly: omp treats a bare string as an env var name
+    // while pi requires a "$" prefix, so no single declarative value works
+    // on both. the "$" fallback keeps pi's own interpolation when the var
+    // is unset at registration time.
+    apiKey: process.env.LLMGATEWAY_API_KEY ?? "$LLMGATEWAY_API_KEY",
     api: "openai-completions",
     authHeader: true,
     headers: {
-      "HTTP-Referer": "https://github.com/cawilliamson/omp-llmgateway",
-      "X-Title": "omp-llmgateway",
+      "HTTP-Referer": "https://github.com/cawilliamson/pi-llmgateway",
+      "X-Title": "pi-llmgateway",
       "x-source": "pi-agent",
     },
     models,
@@ -132,7 +136,7 @@ export default async function (pi: ExtensionAPI) {
       fetchAbort?.abort();
       fetchAbort = new AbortController();
 
-      const apiKey = await getLLMGatewayApiKey(ctx.modelRegistry.authStorage);
+      const apiKey = await getLLMGatewayApiKey(ctx.modelRegistry);
       const result = await fetchModels({
         baseUrl,
         apiKey,

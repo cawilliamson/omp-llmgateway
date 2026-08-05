@@ -1,15 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
 import type { ProviderModelConfig } from "@oh-my-pi/pi-coding-agent";
+import { getAgentDir } from "../../../lib/paths";
 
 const CACHE_FILENAME = "llmgateway-models.json";
 
 function getCachePath(): string {
-  // omp's agent dir is ~/.omp/agent/ — hardcoded to avoid a runtime value
-  // import from @oh-my-pi/pi-coding-agent which omp's jiti loader can't
-  // resolve at load time
-  return join(homedir(), ".omp", "agent", "cache", CACHE_FILENAME);
+  return join(getAgentDir(), "cache", CACHE_FILENAME);
 }
 
 interface CacheFile {

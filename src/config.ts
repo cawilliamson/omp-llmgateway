@@ -1,11 +1,7 @@
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { getAgentDir } from "./lib/paths";
 
 export const LLMGATEWAY_CONFIG_UPDATED_EVENT =
   "llmgateway:config:updated" as const;
@@ -42,9 +38,7 @@ const DEFAULTS: ResolvedLLMGatewayConfig = {
 };
 
 const CONFIG_FILE = join(
-  homedir(),
-  ".omp",
-  "agent",
+  getAgentDir(),
   "cache",
   "llmgateway-config.json",
 );
@@ -59,7 +53,7 @@ function resolve(config: LLMGatewayConfig): ResolvedLLMGatewayConfig {
   };
 }
 
-/** minimal config loader — persists to ~/.omp/agent/cache/llmgateway-config.json */
+/** minimal config loader — persists to <agentDir>/cache/llmgateway-config.json */
 class InlineConfigLoader {
   private current: ResolvedLLMGatewayConfig = { ...DEFAULTS };
   private loaded = false;
@@ -190,7 +184,7 @@ export function registerLLMGatewaySettings(pi: ExtensionAPI): void {
             await configLoader.update({ baseUrl: input.trim() });
             emitConfigUpdated(pi);
             ctx.ui.notify(`base URL → ${input.trim()}`, "info");
-            ctx.ui.notify("restart omp for the base URL change to take effect", "warning");
+            ctx.ui.notify("restart the agent for the base URL change to take effect", "warning");
           }
           break;
         }
